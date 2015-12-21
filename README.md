@@ -1,15 +1,21 @@
 # Cache-Simulator
 CS311 Project 4: Cache Design
 
-# Default Configuration
-Capacity : 256 Byte
-Associativity : 4 ways
-Block size : 8 Byte
+# Input Usage
+You can give input as following:
 
-> Since cache configuration input ([-c cap:assoc:bsize]) is optional, the default cache configuration is set to the above configuration 
+     Cache-Simulator -c cap:assoc:bsize [-x] input_trace
 
+> -c : cache configuration
+
+> -x : dump the cache content only at the end of simulation
+
+Example Usage)
+```sh
+Cache-Simulator -c 4096:4:32 real_workload/gcc
+```
 
 # Compiler Configuration
-LLVM Compiler
-Language : C
-Dialect : GNU99
+* Compiler : LLVM 
+* Language : C
+* Dialect : GNU99

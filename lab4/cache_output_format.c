@@ -12,11 +12,11 @@ typedef struct line {
     bool valid;
     bool dirty;
     uint32_t content;   // tag bit + index bit (block offset masked by 0)
-    int used;                           // used count for LRU
+    int used;           // used count for LRU
 } line;
 
 
-// statistics variables
+// statistical variables
 int total_reads = 0;
 int total_writes = 0;
 int write_backs = 0;
@@ -41,7 +41,6 @@ void xdump(line** cache);
 void checkhit(int32_t address, line** cache, bool write);
 int blockoffset(int blocksize);
 int calcindexbits();
-void sample_input2_hardcode(line** cache);
 void readfile(char *filename, line** cache);
 
 // utility functions
@@ -96,7 +95,7 @@ void sdump() {
 /*                                                             */
 /* Cache Design                                                */
 /*                                                             */
-/* 	    cache[set][assoc][word per block]                      */
+/*          cache[set][assoc][word per block]                  */
 /*                                                             */
 /*                                                             */
 /*       ----------------------------------------              */
@@ -221,14 +220,14 @@ int main(int argc, char *argv[]) {
             }
         }
 	}
-    // run
-    //sample_input2_hardcode(cache);
     
+    
+    // run
     readfile(argv[argc-1], cache);
     
     
 
-	// test example
+	// dumps
     cdump();
     sdump();
     if(dumpcachecontent) xdump(cache);
@@ -338,11 +337,9 @@ void checkhit(int32_t address, line** cache, bool write) { // write -> true, rea
                 evict = true;
             }
         }
-        if (evict && (cache[index][LRUindex].dirty == true)) { // write-back
+        if (evict && (cache[index][LRUindex].dirty == true)) { // write-back condition
             write_backs++;
         }
-        
-        
         
         
         // fill in the contents of cache
@@ -398,39 +395,6 @@ int calcindexbits() {
     }
     return r;       // r = log_2(num)
 }
-
-
-
-
-
-void sample_input2_hardcode(line** cache) {
-    
-    checkhit(0x10001000, cache, false);
-    checkhit(0x10001020, cache, false);
-    checkhit(0x10001040, cache, false);
-    checkhit(0x10001060, cache, false);
-    checkhit(0x10001000, cache, false);
-    checkhit(0x10001040, cache, false);
-    checkhit(0x10001080, cache, false);
-    checkhit(0x100010a0, cache, false);
-    checkhit(0x10001004, cache, true);
-    checkhit(0x10001024, cache, true);
-    checkhit(0x10001044, cache, true);
-    checkhit(0x10001064, cache, true);
-    checkhit(0x10001024, cache, false);
-    checkhit(0x10001064, cache, false);
-    checkhit(0x10001084, cache, false);
-    checkhit(0x100010a4, cache, false);
-    checkhit(0x10001025, cache, true);
-    checkhit(0x10001026, cache, true);
-    checkhit(0x10001027, cache, true);
-
-}
-
-
-
-
-
 
 
 

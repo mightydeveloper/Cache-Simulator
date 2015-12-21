@@ -165,15 +165,17 @@ int main(int argc, char *argv[]) {
     // input argument parsing
     if (argc < 2)
     {
-        printf("Error: usage: %s [-c cap:assoc:bsize] [-x] input_trace\n", argv[0]);
+        printf("Error: usage: %s -c cap:assoc:bsize [-x] input_trace\n", argv[0]);
         exit(1);
     }
     int count = 1;
     char** tokens;
     bool dumpcachecontent = false;
+    bool c_option_provided = false;
     
     while (count != argc-1) {
         if (strcmp(argv[count], "-c") == 0) {
+            c_option_provided = true;
             tokens = str_split(argv[++count],':');
             capacity = (int)strtol(*(tokens), NULL, 10);
             way = (int)strtol(*(tokens+1), NULL, 10);
@@ -186,12 +188,17 @@ int main(int argc, char *argv[]) {
         else if(strcmp(argv[count], "-x") == 0) {
             dumpcachecontent = true;
         } else {
-            printf("Error: usage: %s [-c cap:assoc:bsize] [-x] input_trace\n", argv[0]);
+            printf("Error: usage: %s -c cap:assoc:bsize [-x] input_trace\n", argv[0]);
             exit(1);
         }
         count++;
     }
     
+    if (!c_option_provided) {
+        printf("Error: -c option must be provided!\n");
+        printf("Usage: %s -c cap:assoc:bsize [-x] input_trace\n", argv[0]);
+        exit(1);
+    }
     
     
 

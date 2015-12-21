@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
+#include <assert.h>
 
 #define BYTES_PER_WORD 4
 #define MAX_BLOCK_WORD 8
@@ -39,6 +41,10 @@ void checkhit(int32_t address, line** cache, bool write);
 int blockoffset(int blocksize);
 int calcindexbits();
 void sample_input2_hardcode(line** cache);
+void readfile(char *filename, line** cache);
+
+// utility functions
+char** str_split(char *a_str, const char a_delim);
 
 
 
@@ -156,6 +162,38 @@ int main(int argc, char *argv[]) {
     set = capacity/way/blocksize;       // index
     words = blocksize / BYTES_PER_WORD;	// #of words per block.
     
+    // input argument parsing
+    if (argc < 2)
+    {
+        printf("Error: usage: %s [-c cap:assoc:bsize] [-x] input_trace\n", argv[0]);
+        exit(1);
+    }
+    int count = 1;
+    char** tokens;
+    bool dumpcachecontent = false;
+    
+    while (count != argc-1) {
+        if (strcmp(argv[count], "-c") == 0) {
+            tokens = str_split(argv[++count],':');
+            capacity = (int)strtol(*(tokens), NULL, 10);
+            way = (int)strtol(*(tokens+1), NULL, 10);
+            blocksize = (int)strtol(*(tokens+2), NULL, 10);
+            
+            set = capacity/way/blocksize;
+            words = blocksize / BYTES_PER_WORD;
+        }
+        
+        else if(strcmp(argv[count], "-x") == 0) {
+            dumpcachecontent = true;
+        } else {
+            printf("Error: usage: %s [-c cap:assoc:bsize] [-x] input_trace\n", argv[0]);
+            exit(1);
+        }
+        count++;
+    }
+    
+    
+    
 
 	// allocate
     cache = (line**) malloc(sizeof(line*) * set);
@@ -168,20 +206,56 @@ int main(int argc, char *argv[]) {
         for(j = 0; j < way; j ++) {
             for (k = 0; k < words; k++) {
                 cache[i][j].content[k] = 0x0;
+                cache[i][j].valid = false;
+                cache[i][j].used = UINT32_MAX;
             }
         }
 	}
     // run
-    sample_input2_hardcode(cache);
+    //sample_input2_hardcode(cache);
     
+    readfile(argv[argc-1], cache);
     
 
 	// test example
     cdump();
     sdump();
-    xdump(cache);
+    if(dumpcachecontent) xdump(cache);
 
     return 0;
+}
+
+
+
+void readfile(char *filename, line** cache) {
+    FILE *inputfile;
+    inputfile = fopen(filename, "r");
+    
+    if (inputfile == NULL) {
+        printf("Error: %s file is not found", filename);
+        exit(1);
+    }
+    
+    
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    
+    while ((read = getline(&line, &len, inputfile)) != -1) {
+        bool writemode = true;
+        if (line[0] == 'R') {
+            writemode = false;
+        } else if (line[0] == 'W') {
+            writemode = true;
+        } else {
+            printf("Wrong input : %s", line);
+            exit(1);
+        }
+    
+        int32_t addr = (int32_t) strtol(line+2,NULL,0);
+        
+        checkhit(addr, cache, writemode);
+    }
 }
 
 
@@ -337,5 +411,67 @@ void sample_input2_hardcode(line** cache) {
     checkhit(0x10001027, cache, true);
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+//  Utility function
+
+char** str_split(char *a_str, const char a_delim)
+{
+    char** result    = 0;
+    size_t count     = 0;
+    char* tmp        = a_str;
+    char* last_comma = 0;
+    char delim[2];
+    delim[0] = a_delim;
+    delim[1] = 0;
+    
+    /* Count how many elements will be extracted. */
+    while (*tmp)
+    {
+        if (a_delim == *tmp)
+        {
+            count++;
+            last_comma = tmp;
+        }
+        tmp++;
+    }
+    
+    /* Add space for trailing token. */
+    count += last_comma < (a_str + strlen(a_str) - 1);
+    
+    /* Add space for terminating null string so caller
+     *        knows where the list of returned strings ends. */
+    count++;
+    
+    result = malloc(sizeof(char*) * count);
+    
+    if (result)
+    {
+        size_t idx  = 0;
+        char* token = strtok(a_str, delim);
+        
+        while (token)
+        {
+            assert(idx < count);
+            *(result + idx++) = strdup(token);
+            token = strtok(0, delim);
+        }
+        assert(idx == count - 1);
+        *(result + idx) = 0;
+    }
+    
+    return result;
+}
+
 
 

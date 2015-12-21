@@ -13,6 +13,34 @@ typedef struct line {
 } line;
 
 
+// statistics variables
+int total_reads = 0;
+int total_writes = 0;
+int write_backs = 0;
+int reads_hits = 0;
+int write_hits = 0;
+int reads_misses = 0;
+int write_misses = 0;
+
+// global variables
+int capacity = 256;                     // capacity in Bytes
+int way = 4;                            // associativity
+int blocksize = 8;                      // block size in Bytes
+int set = 8;                            // index
+int words = 1;                          // #of words per block.
+
+unsigned int usedcount = 0;
+
+// functions
+void cdump();
+void sdump();
+void xdump(line** cache);
+void checkhit(int32_t address, line** cache, bool write);
+int blockoffset(int blocksize);
+int calcindexbits();
+void sample_input2_hardcode(line** cache);
+
+
 
 
 /***************************************************************/
@@ -22,12 +50,12 @@ typedef struct line {
 /* Purpose   : Dump cache configuration                        */   
 /*                                                             */
 /***************************************************************/
-void cdump(int capacity, int assoc, int blocksize){
+void cdump(){
 
 	printf("Cache Configuration:\n");
     printf("-------------------------------------\n");
 	printf("Capacity: %dB\n", capacity);
-	printf("Associativity: %dway\n", assoc);
+	printf("Associativity: %dway\n", way);
 	printf("Block Size: %dB\n", blocksize);
 	printf("\n");
 }
@@ -39,8 +67,7 @@ void cdump(int capacity, int assoc, int blocksize){
 /* Purpose   : Dump cache stat                                 */
 /*                                                             */
 /***************************************************************/
-void sdump(int total_reads, int total_writes, int write_backs,
-	int reads_hits, int write_hits, int reads_misses, int write_misses) {
+void sdump() {
 	printf("Cache Stat:\n");
     printf("-------------------------------------\n");
 	printf("Total reads: %d\n", total_reads);
@@ -81,7 +108,7 @@ void sdump(int total_reads, int total_writes, int write_backs,
 /*                                                             */
 /*                                                             */
 /***************************************************************/
-void xdump(int set, int way, int words, line** cache)
+void xdump(line** cache)
 {
 	int i,j,k = 0;
 
@@ -119,14 +146,16 @@ void xdump(int set, int way, int words, line** cache)
 
 
 int main(int argc, char *argv[]) {                              
-
+    
 	line** cache;
 	int i, j, k;	
-	int capacity = 256;                     // capacity in Bytes
-	int way = 4;                            // associativity
-	int blocksize = 8;                      // block size in Bytes
-	int set = capacity/way/blocksize;       // index
-	int words = blocksize / BYTES_PER_WORD;	// #of words per block.
+	
+    capacity = 256;                     // capacity in Bytes
+    way = 4;                            // associativity
+    blocksize = 8;                      // block size in Bytes
+    set = capacity/way/blocksize;       // index
+    words = blocksize / BYTES_PER_WORD;	// #of words per block.
+    
 
 	// allocate
     cache = (line**) malloc(sizeof(line*) * set);
@@ -134,7 +163,7 @@ int main(int argc, char *argv[]) {
         cache[i] = (struct line*) malloc(sizeof(line) * way);
     }
     
-    // init
+    // initialize
 	for(i = 0; i < set; i++) {
         for(j = 0; j < way; j ++) {
             for (k = 0; k < words; k++) {
@@ -142,11 +171,171 @@ int main(int argc, char *argv[]) {
             }
         }
 	}
+    // run
+    sample_input2_hardcode(cache);
+    
+    
 
 	// test example
-    cdump(capacity, way, blocksize);
-    sdump(0, 0, 0, 0, 0, 0, 0);
-    xdump(set, way, words, cache);
+    cdump();
+    sdump();
+    xdump(cache);
 
     return 0;
 }
+
+
+
+
+
+
+
+void checkhit(int32_t address, line** cache, bool write) { // write -> true, read -> false
+    // count totals
+    if (write) total_writes++;
+    else total_reads++;
+    
+    // calculate index location, block offset bit
+#define BYTEOFFSET 2
+    int blockoffsetbit = (address & 0XFFFFFFF0) >> BYTEOFFSET;
+    int index = (address & 0XFFFFFFF0) >> (blockoffset(blocksize)+BYTEOFFSET);
+    unsigned int mask = 0;
+    for (unsigned i=0; i < calcindexbits(); i++) {
+        mask |= 1 << i;
+    }
+    index = index & mask; // extract index bits
+    
+    unsigned int mask2 = 0;
+    for (unsigned i=0; i < words; i++) {
+        mask2 |= 1 << i;
+    }
+    blockoffsetbit = blockoffsetbit & mask2; // extract block offset bits
+    // end of index, block offset calcuation
+    
+
+    
+    
+    //cache[set][assoc][word per block]
+    int i;
+    bool hit = false;
+    for (i=0; i<way; i++) {
+        if (cache[index][i].content[blockoffsetbit] == (address&0XFFFFFFF0) && cache[index][i].valid) {
+            // Hit!!
+            hit = true;
+            cache[index][i].used = usedcount++;
+            
+            if (write) write_hits++;
+            else reads_hits++;
+            break;
+        }
+    }
+    if (!hit) {
+        // Miss!!
+        if (write) write_misses++;
+        else reads_misses++;
+        
+        // Miss handling
+        // find LRU index
+        int LRUindex = 0;
+        bool evict = true;
+        unsigned int LRUcount = UINT32_MAX;
+        for (i=0; i<way; i++) {
+            if (!cache[index][i].valid) { // empty spot found
+                LRUindex = i;
+                evict = false;
+                break;
+            }
+            
+            if (cache[index][i].used < LRUcount) { // found 'less' recently used line
+                LRUindex = i;
+                LRUcount = cache[index][i].used;
+            }
+        }
+        if (evict && write) { // write-back
+            write_backs++;
+        }
+        
+        
+        // fill in the contents of cache
+        cache[index][LRUindex].valid = true;
+    
+        unsigned int mask3 = 0;
+        for (unsigned i=BYTEOFFSET; i <BYTEOFFSET+words; i++) {
+            mask3 |= 1 << i;
+        }
+        
+        for (i=0; i<words; i++) { // update whole chunk of block words.
+            
+            cache[index][LRUindex].content[i] = ((address&0XFFFFFFF0)&(~mask3)) | (i<<2);
+        }
+        cache[index][LRUindex].used = usedcount++;
+        
+    }
+    
+    
+    
+}
+
+
+
+
+int blockoffset(int blocksize) {
+    switch (blocksize) {
+        case 4:
+            return 0;
+            break;
+        case 8:
+            return 1;
+            break;
+        case 16:
+            return 2;
+            break;
+        case 32:
+            return 3;
+            break;
+        default:
+            printf("Wrong blocksize value : %d\n", blocksize);
+            break;
+    }
+    return 0;
+}
+
+int calcindexbits() {
+    int num = capacity/way/blocksize;
+    int r = 0;
+    while (num >>= 1)
+    {
+        r++;
+    }
+    return r;       // r = log_2(num)
+}
+
+
+
+
+
+void sample_input2_hardcode(line** cache) {
+    
+    checkhit(0x10001000, cache, false);
+    checkhit(0x10001020, cache, false);
+    checkhit(0x10001040, cache, false);
+    checkhit(0x10001060, cache, false);
+    checkhit(0x10001000, cache, false);
+    checkhit(0x10001040, cache, false);
+    checkhit(0x10001080, cache, false);
+    checkhit(0x100010a0, cache, false);
+    checkhit(0x10001004, cache, true);
+    checkhit(0x10001024, cache, true);
+    checkhit(0x10001044, cache, true);
+    checkhit(0x10001064, cache, true);
+    checkhit(0x10001024, cache, false);
+    checkhit(0x10001064, cache, false);
+    checkhit(0x10001084, cache, false);
+    checkhit(0x100010a4, cache, false);
+    checkhit(0x10001025, cache, true);
+    checkhit(0x10001026, cache, true);
+    checkhit(0x10001027, cache, true);
+
+}
+
+

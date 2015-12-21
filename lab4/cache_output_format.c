@@ -10,7 +10,8 @@
 
 typedef struct line {
     bool valid;
-    uint32_t content[MAX_BLOCK_WORD];   // tag bit + index bit (block offset masked by 0)
+    bool dirty;
+    uint32_t content;   // tag bit + index bit (block offset masked by 0)
     int used;                           // used count for LRU
 } line;
 
@@ -116,36 +117,34 @@ void sdump() {
 /***************************************************************/
 void xdump(line** cache)
 {
-	int i,j,k = 0;
-
-	printf("Cache Content:\n");
+    int i,j,k = 0;
+    
+    printf("Cache Content:\n");
     printf("-------------------------------------\n");
-	for(i = 0; i < way;i++)
-	{
-		if(i == 0)
-		{
-			printf("          ");
-		}
-		printf("WAY[%d]      ",i);
-        for (k = 0; k < words-1; k++) {
-            printf("            ");
+    for(i = 0; i < way;i++)
+    {
+        if(i == 0)
+        {
+            printf("    ");
         }
-	}
-	printf("\n");
-
-	for(i = 0 ; i < set;i++)
-	{
-		printf("SET[%d]:   ",i);
-		for(j = 0; j < way;j++)
-		{
-            for (k = 0; k < words; k++) {
-                printf("0x%08x  ", cache[i][j].content[k]);
+        printf("      WAY[%d]",i);
+    }
+    printf("\n");
+    
+    for(i = 0 ; i < set;i++)
+    {
+        printf("SET[%d]:   ",i);
+        for(j = 0; j < way;j++)
+        {
+            if(k != 0 && j == 0)
+            {
+                printf("          ");
             }
-			
-		}
-		printf("\n");
-	}
-	printf("\n");
+            printf("0x%08x  ", cache[i][j].content);
+        }
+        printf("\n");
+    }
+    printf("\n");
 }
 
 
@@ -154,13 +153,16 @@ void xdump(line** cache)
 int main(int argc, char *argv[]) {                              
     
 	line** cache;
+    bool dumpcachecontent = false;
 	int i, j, k;	
 	
-    capacity = 256;                     // capacity in Bytes
-    way = 4;                            // associativity
-    blocksize = 8;                      // block size in Bytes
+    capacity = 128;                     // capacity in Bytes
+    way = 2;                            // associativity
+    blocksize = 16;                     // block size in Bytes
+    
     set = capacity/way/blocksize;       // index
     words = blocksize / BYTES_PER_WORD;	// #of words per block.
+    
     
     // input argument parsing
     if (argc < 2)
@@ -170,7 +172,6 @@ int main(int argc, char *argv[]) {
     }
     int count = 1;
     char** tokens;
-    bool dumpcachecontent = false;
     bool c_option_provided = false;
     
     while (count != argc-1) {
@@ -201,6 +202,7 @@ int main(int argc, char *argv[]) {
     }
     
     
+    
 
 	// allocate
     cache = (line**) malloc(sizeof(line*) * set);
@@ -212,8 +214,9 @@ int main(int argc, char *argv[]) {
 	for(i = 0; i < set; i++) {
         for(j = 0; j < way; j ++) {
             for (k = 0; k < words; k++) {
-                cache[i][j].content[k] = 0x0;
+                cache[i][j].content = 0x0;
                 cache[i][j].valid = false;
+                cache[i][j].dirty = false;
                 cache[i][j].used = UINT32_MAX;
             }
         }
@@ -222,6 +225,7 @@ int main(int argc, char *argv[]) {
     //sample_input2_hardcode(cache);
     
     readfile(argv[argc-1], cache);
+    
     
 
 	// test example
@@ -277,9 +281,9 @@ void checkhit(int32_t address, line** cache, bool write) { // write -> true, rea
     else total_reads++;
     
     // calculate index location, block offset bit
-#define BYTEOFFSET 2
-    int blockoffsetbit = (address & 0XFFFFFFF0) >> BYTEOFFSET;
-    int index = (address & 0XFFFFFFF0) >> (blockoffset(blocksize)+BYTEOFFSET);
+
+    
+    int index = (address) >> (blockoffset(blocksize));
     unsigned int mask = 0;
     for (unsigned i=0; i < calcindexbits(); i++) {
         mask |= 1 << i;
@@ -287,10 +291,9 @@ void checkhit(int32_t address, line** cache, bool write) { // write -> true, rea
     index = index & mask; // extract index bits
     
     unsigned int mask2 = 0;
-    for (unsigned i=0; i < words; i++) {
+    for (unsigned i=0; i < blockoffset(blocksize); i++) {
         mask2 |= 1 << i;
     }
-    blockoffsetbit = blockoffsetbit & mask2; // extract block offset bits
     // end of index, block offset calcuation
     
 
@@ -300,25 +303,27 @@ void checkhit(int32_t address, line** cache, bool write) { // write -> true, rea
     int i;
     bool hit = false;
     for (i=0; i<way; i++) {
-        if (cache[index][i].content[blockoffsetbit] == (address&0XFFFFFFF0) && cache[index][i].valid) {
+        if (cache[index][i].content == (address&(~mask2)) && cache[index][i].valid) {
             // Hit!!
             hit = true;
             cache[index][i].used = usedcount++;
             
-            if (write) write_hits++;
+            if (write) {
+                write_hits++;
+                cache[index][i].dirty = true;
+            }
             else reads_hits++;
             break;
         }
     }
     if (!hit) {
         // Miss!!
-        if (write) write_misses++;
-        else reads_misses++;
+        
         
         // Miss handling
         // find LRU index
         int LRUindex = 0;
-        bool evict = true;
+        bool evict = false;
         unsigned int LRUcount = UINT32_MAX;
         for (i=0; i<way; i++) {
             if (!cache[index][i].valid) { // empty spot found
@@ -330,26 +335,29 @@ void checkhit(int32_t address, line** cache, bool write) { // write -> true, rea
             if (cache[index][i].used < LRUcount) { // found 'less' recently used line
                 LRUindex = i;
                 LRUcount = cache[index][i].used;
+                evict = true;
             }
         }
-        if (evict && write) { // write-back
+        if (evict && (cache[index][LRUindex].dirty == true)) { // write-back
             write_backs++;
         }
         
         
-        // fill in the contents of cache
-        cache[index][LRUindex].valid = true;
-    
-        unsigned int mask3 = 0;
-        for (unsigned i=BYTEOFFSET; i <BYTEOFFSET+words; i++) {
-            mask3 |= 1 << i;
-        }
         
-        for (i=0; i<words; i++) { // update whole chunk of block words.
-            
-            cache[index][LRUindex].content[i] = ((address&0XFFFFFFF0)&(~mask3)) | (i<<2);
-        }
+        
+        // fill in the contents of cache
+        // write-allocate
+        cache[index][LRUindex].valid = true;
+        cache[index][LRUindex].content = (address&(~mask2));
         cache[index][LRUindex].used = usedcount++;
+        if (write) {
+            write_misses++;
+            cache[index][LRUindex].dirty = true;
+        }
+        else {
+            reads_misses++;
+            cache[index][LRUindex].dirty = false;
+        }
         
     }
     
@@ -363,16 +371,16 @@ void checkhit(int32_t address, line** cache, bool write) { // write -> true, rea
 int blockoffset(int blocksize) {
     switch (blocksize) {
         case 4:
-            return 0;
-            break;
-        case 8:
-            return 1;
-            break;
-        case 16:
             return 2;
             break;
-        case 32:
+        case 8:
             return 3;
+            break;
+        case 16:
+            return 4;
+            break;
+        case 32:
+            return 5;
             break;
         default:
             printf("Wrong blocksize value : %d\n", blocksize);

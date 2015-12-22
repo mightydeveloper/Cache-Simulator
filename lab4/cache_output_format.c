@@ -12,7 +12,7 @@ typedef struct line {
     bool valid;
     bool dirty;
     uint32_t content;   // tag bit + index bit (block offset masked by 0)
-    int used;           // used count for LRU
+    unsigned int used;           // used count for LRU
 } line;
 
 
